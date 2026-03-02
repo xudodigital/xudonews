@@ -742,13 +742,26 @@ async function fetchMovieDetails(type, id) {
         if (g && d.genres) g.innerHTML = d.genres.map(x => `<span class="genre-tag">${sanitizeHTML(x.name)}</span>`).join('');
 
         // =====================================================================
-        // [EN] UPDATE DYNAMIC WATCH FULL BUTTON URL (ALWAYS DYNAMIC)
+        // [EN] UPDATE DYNAMIC WATCH FULL BUTTON URL (SMART DEEP-LINKING)
         // =====================================================================
         const watchFullBtn = document.getElementById('watch-full-btn');
         if (watchFullBtn) {
-            // Directly route to the XUDOMovie dynamic page
-            watchFullBtn.href = `https://xudomovie.us/watch.html?type=${type}&id=${id}&lang=${CURRENT_LANG}`;
+            const localFile = LOCAL_SEARCH_INDEX.find(x => x.id == id && x.type == type);
+            
+            if (localFile) {
+                // watchFullBtn.href = `https://xudomovie.us/${localFile.folder}/${localFile.slug}.html`;
+                watchFullBtn.href = `https://xudomovie.us/watch.html?type=${type}&id=${id}&lang=${CURRENT_LANG}`;
+            } else {
+                watchFullBtn.href = `https://xudomovie.us/watch.html?type=${type}&id=${id}&lang=${CURRENT_LANG}`;
+            }
+            
+            // 2. Set target to _blank for a better user experience
             watchFullBtn.target = "_blank";
+        }
+
+            } catch (error) { 
+                console.error("[EN] Fetch Movie Details Error:", error); 
+            }
         }
 
 /**
@@ -801,3 +814,4 @@ document.addEventListener('DOMContentLoaded', () => {
     else if (document.getElementById('player-container')) initWatchPage();
 
 });
+
