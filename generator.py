@@ -6,7 +6,7 @@ import requests, os, re, time, json, random
 API_KEY = os.getenv('TMDB_API_KEY', '9d3fd8464dbd695f9457240aeea19851')
 BASE_URL = 'https://api.themoviedb.org/3'
 LANG = 'en-US'
-TOTAL_PAGES = 1  # Fetch more content
+TOTAL_PAGES = 200  # Fetch more content
 
 # [MULTI-CLUSTER CONFIGURATION]
 TARGETS = [
