@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /*?search=
+Disallow: /*&search=
+Disallow: /*?type=
+Sitemap: https://xudonews.us/sitemap.xml
