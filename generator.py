@@ -13,7 +13,7 @@ TARGETS = [
 ]
 
 GA_MAPPING = {
-    "https://xudonews.us": "G-XXX",
+    "https://xudonews.us": "G-61D4NQPD4N",
 }
 
 CURRENT_INDEX_DB = {}
