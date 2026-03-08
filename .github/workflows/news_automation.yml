@@ -39,5 +39,5 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add .
-          # Check for new or modified files. If changes exist, commit and push them to the repository.
-          git diff --quiet && git diff --staged --quiet || (git commit -m "🤖 Auto-generated news & updated index" && git push)
+          # Lakukan pull dengan rebase sebelum push agar tidak bentrok
+          git diff --quiet && git diff --staged --quiet || (git commit -m "🤖 Auto-generated news & updated index" && git pull --rebase origin main && git push)
