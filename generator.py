@@ -1,129 +1,104 @@
 import requests, os, re, time, json, random
 
-# --- GLOBAL CONFIGURATION ---
-# [EN] Fetch API key from environment variables to prevent hardcoding credentials.
-# Fallback is provided for local testing. Usage in terminal: export TMDB_API_KEY='your_api_key'
-API_KEY = os.getenv('TMDB_API_KEY', '9d3fd8464dbd695f9457240aeea19851')
-BASE_URL = 'https://api.themoviedb.org/3'
-LANG = 'en-US'
-TOTAL_PAGES = 200  # Fetch more content
+# Changed API_KEY variable to expect NYT API Key, with fallback
+API_KEY = os.getenv('NYT_API_KEY', 'WxLcHPZMAnPr7JCDVtzK751MT2Opabd2LPE5STekNykANA7z')
+# Updated Base URL to target NYT Top Stories API
+BASE_URL = 'https://api.nytimes.com/svc/topstories/v2'
+LANG = 'en'
+# Preserved original categories to ensure existing frontend routing and folders DO NOT break
+CATEGORIES = ['general', 'world', 'nation', 'business', 'technology', 'entertainment', 'sports', 'science', 'health']
 
-# [MULTI-CLUSTER CONFIGURATION]
 TARGETS = [
-    # --- CLUSTER 1: BRAND ---
-    {"domain": "https://xudotrailer.us",       "path": "./public_html",      "authority_url": "https://xudotrailer.us"},
+    {"domain": "https://xudonews.us", "path": "./public_html", "authority_url": "https://xudonews.us"},
 ]
 
 GA_MAPPING = {
-    "https://xudotrailer.us":          "G-34E9TJGR5H",
+    "https://xudonews.us": "G-XXX",
 }
 
-# Database buffer
 CURRENT_INDEX_DB = {}
 
-# --- HELPER FUNCTIONS ---
-
-def slugify(text, item_id=""):
+def generate_id(url_str):
     """
-    [EN] Converts a given text into a URL-friendly slug.
-    Removes non-alphanumeric characters and provides a fallback if empty.
+    Generates a unique numeric ID from a string URL to match the client-side JavaScript logic.
+    """
+    hash_val = 0
+    for char in url_str:
+        hash_val = ((hash_val << 5) - hash_val) + ord(char)
+        hash_val = (hash_val ^ 0x80000000) - 0x80000000
+    return abs(hash_val)
+
+def slugify(text):
+    """
+    Converts a given text into a URL-friendly slug.
     """
     text = str(text).lower()
     slug = re.sub(r'[^a-z0-9]+', '-', text).strip('-')
     if not slug:
-        return f"movie-{item_id}" if item_id else "untitled-content"
-    return slug
-
-def fmt_run(minutes):
-    """
-    [EN] Formats runtime from total minutes into an 'Xh Ym' string representation.
-    """
-    return f"{minutes//60}h {minutes%60}m" if minutes else "N/A"
+        return "news-article"
+    return slug[:80]
 
 def safe_str(text):
     """
-    [EN] Escapes single and double quotes to ensure string is safe for HTML/JS injection.
+    Escapes single and double quotes to ensure string is safe for HTML/JS injection.
     """
+    if not text: return ""
     return str(text).replace("'", "\\'").replace('"', '\\"')
-
-def get_trailer(videos_data):
-    """
-    [EN] Iterates through the TMDB video array to find the primary YouTube trailer key.
-    """
-    results = videos_data.get('results', [])
-    for video in results:
-        if video.get('site') == 'YouTube' and video.get('type') == 'Trailer':
-            return video.get('key')
-    return results[0].get('key', '') if results else ''
-
-def get_cert(release_data, media_type):
-    """
-    [EN] Extracts the certification or age rating based on the US region from TMDB data.
-    """
-    try:
-        if media_type == 'movie':
-            results = release_data.get('release_dates', {}).get('results', [])
-            us_release = next((item for item in results if item['iso_3166_1'] == 'US'), None)
-            if us_release:
-                for release in us_release['release_dates']:
-                    if release.get('certification'):
-                        return release['certification']
-        else:
-            results = release_data.get('content_ratings', {}).get('results', [])
-            us_rating = next((item['rating'] for item in results if item['iso_3166_1'] == 'US'), None)
-            if us_rating: return us_rating
-        return "NR"
-    except Exception as e:
-        print(f"  ⚠️ [Warning] Failed to parse certification: {e}")
-        return "NR"
 
 def ping_new_content(title, url):
     """
-    [EN] Sends a ping to pingomatic service to notify search engines about new content.
+    Sends a ping to pingomatic service to notify search engines about new content.
     """
     try:
         services = {'title': title, 'blogurl': url, 'chk_weblogscom': 'on', 'chk_blogs': 'on', 'chk_google': 'on'}
         requests.get("http://pingomatic.com/ping/", params=services, timeout=2)
-    except requests.exceptions.RequestException as e:
-        print(f"  ⚠️ [Warning] Ping failed for {title}: {e}")
+    except requests.exceptions.RequestException:
+        pass
 
-def generate_json_ld(data, media_type, title):
+def generate_json_ld(article, category, domain):
     """
-    [EN] Generates valid JSON-LD schema markup for Rich Snippet SEO purposes.
+    Generates valid JSON-LD schema markup for NewsArticle SEO purposes.
+    Updated to parse NYT JSON structure and handle CDN images.
     """
-    runtime = data.get('runtime') or (data.get('episode_run_time', [0])[0] if data.get('episode_run_time') else 0)
-    poster_path = data.get('poster_path')
-    final_poster = f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else "https://via.placeholder.com/500x750?text=No+Poster"
-    
+    image_url = 'https://via.placeholder.com/900x500/1a1a1a/ffffff?text=No+Image'
+    if article.get('multimedia') and isinstance(article['multimedia'], list) and len(article['multimedia']) > 0:
+        raw_url = article['multimedia'][0].get('url', '')
+        if raw_url:
+            if raw_url.startswith('http://') or raw_url.startswith('https://'):
+                image_url = raw_url
+            else:
+                separator = '' if raw_url.startswith('/') else '/'
+                image_url = f"https://static01.nyt.com{separator}{raw_url}"
+
     schema = {
         "@context": "https://schema.org",
-        "@type": "Movie" if media_type == "movie" else "TVSeries",
-        "name": title,
-        "image": final_poster,
-        "description": data.get('overview', '')[:160],
-        "datePublished": data.get('release_date') if media_type == "movie" else data.get('first_air_date'),
-        "genre": [g['name'] for g in data.get('genres', [])],
-        "actor": [{"@type": "Person", "name": c['name']} for c in data.get('credits', {}).get('cast', [])[:5]],
-        "aggregateRating": {
-            "@type": "AggregateRating", 
-            "ratingValue": data.get('vote_average', 0), 
-            "bestRating": "10", 
-            "ratingCount": max(1, data.get('vote_count', 0))
-        }
+        "@type": "NewsArticle",
+        "headline": article.get('title', ''),
+        "image": [image_url],
+        "datePublished": article.get('published_date', ''), # NYT uses published_date
+        "author": [{
+            "@type": "Organization",
+            "name": "The New York Times", # Hardcoded since API source is solely NYT
+            "url": "https://www.nytimes.com"
+        }],
+        "publisher": {
+            "@type": "Organization",
+            "name": domain,
+            "logo": {
+                "@type": "ImageObject",
+                "url": f"https://{domain}/icon.png"
+            }
+        },
+        "description": article.get('abstract', '') # NYT uses abstract for description
     }
-    if runtime > 0:
-        schema["duration"] = f"PT{runtime//60}H{runtime%60}M"
     return json.dumps(schema)
-
-# --- FILE GENERATORS ---
 
 def generate_sitemap(target_path, site_domain, folder_name):
     """
-    [EN] Generates an XML sitemap for a specific folder containing HTML files.
+    Generates an XML sitemap for a specific folder containing HTML files.
     """
     full_path = os.path.join(target_path, folder_name)
     if not os.path.exists(full_path): return
-    print(f"    🗺️  Generating sitemap for {folder_name}...")
     
     try:
         xml_content = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
@@ -131,51 +106,43 @@ def generate_sitemap(target_path, site_domain, folder_name):
         for filename in files:
             file_path = os.path.join(full_path, filename)
             mod_time = time.strftime('%Y-%m-%d', time.gmtime(os.path.getmtime(file_path)))
-            xml_content += f'  <url>\n    <loc>{site_domain}/{folder_name}/{filename}</loc>\n    <lastmod>{mod_time}</lastmod>\n    <changefreq>weekly</changefreq>\n  </url>\n'
+            xml_content += f'  <url>\n    <loc>{site_domain}/{folder_name}/{filename}</loc>\n    <lastmod>{mod_time}</lastmod>\n    <changefreq>daily</changefreq>\n  </url>\n'
         xml_content += '</urlset>'
         
         with open(os.path.join(target_path, f"{folder_name}_sitemap.xml"), 'w', encoding='utf-8') as f:
             f.write(xml_content)
-    except IOError as e:
-        print(f"  ❌ [Error] Failed to write sitemap {folder_name}: {e}")
+    except IOError:
+        pass
 
 def generate_master_sitemap(target_path, site_domain):
     """
-    [EN] Generates the main sitemap index pointing to specific category sitemaps.
+    Generates the main sitemap index pointing to specific category sitemaps.
     """
     today = time.strftime('%Y-%m-%d')
     try:
         xml_content = '<?xml version="1.0" encoding="UTF-8"?>\n<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
-        xml_content += f'  <sitemap>\n    <loc>{site_domain}/movies_sitemap.xml</loc>\n    <lastmod>{today}</lastmod>\n  </sitemap>\n'
-        xml_content += f'  <sitemap>\n    <loc>{site_domain}/tvshows_sitemap.xml</loc>\n    <lastmod>{today}</lastmod>\n  </sitemap>\n'
+        for cat in CATEGORIES:
+            xml_content += f'  <sitemap>\n    <loc>{site_domain}/{cat}_sitemap.xml</loc>\n    <lastmod>{today}</lastmod>\n  </sitemap>\n'
         xml_content += '</sitemapindex>'
         with open(os.path.join(target_path, 'sitemap.xml'), 'w', encoding='utf-8') as f:
             f.write(xml_content)
-    except IOError as e:
-        print(f"  ❌ [Error] Failed to write master sitemap: {e}")
+    except IOError:
+        pass
 
 def generate_robots_txt(target_path, site_domain):
     """
-    [EN] Generates a robots.txt file to instruct search engine crawlers.
+    Generates a robots.txt file to instruct search engine crawlers.
     """
-    print("    🤖 Generating robots.txt...")
-    content = f"""User-agent: *
-Allow: /
-Disallow: /*?search=
-Disallow: /*&search=
-Disallow: /*?lang=
-Disallow: /*&lang=
-Sitemap: {site_domain}/sitemap.xml
-"""
+    content = f"User-agent: *\nAllow: /\nDisallow: /*?search=\nDisallow: /*&search=\nDisallow: /*?type=\nSitemap: {site_domain}/sitemap.xml\n"
     try:
         with open(os.path.join(target_path, 'robots.txt'), 'w', encoding='utf-8') as f:
             f.write(content)
-    except IOError as e:
-        print(f"  ❌ [Error] Failed to write robots.txt: {e}")
+    except IOError:
+        pass
 
 def load_existing_index(target_path):
     """
-    [EN] Loads the existing local JSON search index into memory to avoid duplicates.
+    Loads the existing local JSON search index into memory to avoid duplicates.
     """
     global CURRENT_INDEX_DB
     CURRENT_INDEX_DB = {}
@@ -185,64 +152,75 @@ def load_existing_index(target_path):
             with open(index_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
                 for item in data:
-                    key = f"{item['type']}_{item['id']}"
-                    CURRENT_INDEX_DB[key] = item
-        except json.JSONDecodeError as e:
-            print(f"  ❌ [Error] JSON format error in search_index.json: {e}")
-        except IOError as e:
-            print(f"  ❌ [Error] Could not read search_index.json: {e}")
+                    CURRENT_INDEX_DB[str(item['id'])] = item
+        except:
+            pass
 
 def save_search_index(target_path):
     """
-    [EN] Dumps the global index buffer back to a JSON file for local searching.
+    Dumps the global index buffer back to a JSON file for local client-side searching and rendering.
     """
-    print("    🔍 Saving search_index.json...")
     final_list = list(CURRENT_INDEX_DB.values())
     try:
         with open(os.path.join(target_path, 'search_index.json'), 'w', encoding='utf-8') as f:
             json.dump(final_list, f)
-    except IOError as e:
-        print(f"  ❌ [Error] Could not save search_index.json: {e}")
+    except IOError:
+        pass
 
-# --- CORE LOGIC ---
-
-def fetch_content_from_tmdb():
+def fetch_content_from_nyt():
     """
-    [EN] Fetches content lists from TMDB API handling both popular movies and TV shows.
+    Fetches latest news articles grouped by mapped category from the NYT Top Stories API.
+    Uses a mapping dictionary to translate local categories to NYT specific sections
+    to prevent breaking existing frontend logic and folder structures.
     """
-    content_list = []
-    print("📡 Connecting to TMDB API...")
-    for page in range(1, TOTAL_PAGES + 1):
-        try:
-            url = f"{BASE_URL}/movie/popular?api_key={API_KEY}&language={LANG}&page={page}"
-            response = requests.get(url).json()
-            for item in response.get('results', []):
-                item['media_type_override'] = 'movie'
-                content_list.append(item)
-        except requests.exceptions.RequestException as e: 
-            print(f"  ❌ [Error] Network failure fetching movies page {page}: {e}")
+    content_dict = {cat: [] for cat in CATEGORIES}
+    print("📡 Connecting to NYT Top Stories API...")
+    
+    # Mapping existing local categories to valid NYT sections
+    nyt_section_map = {
+        'general': 'home',      # Translates general to home
+        'world': 'world',
+        'nation': 'us',         # Translates nation to us
+        'business': 'business',
+        'technology': 'technology',
+        'entertainment': 'arts', # Translates entertainment to arts
+        'sports': 'sports',
+        'science': 'science',
+        'health': 'health'
+    }
 
-    for page in range(1, TOTAL_PAGES + 1):
+    for cat in CATEGORIES:
+        nyt_section = nyt_section_map.get(cat, 'home')
         try:
-            url = f"{BASE_URL}/tv/popular?api_key={API_KEY}&language={LANG}&page={page}"
-            response = requests.get(url).json()
-            for item in response.get('results', []):
-                item['media_type_override'] = 'tv'
-                content_list.append(item)
-        except requests.exceptions.RequestException as e: 
-            print(f"  ❌ [Error] Network failure fetching TV page {page}: {e}")
+            # Constructing URL based on NYT docs
+            url = f"{BASE_URL}/{nyt_section}.json?api-key={API_KEY}"
+            res = requests.get(url)
+            response = res.json()
             
-    print(f"✅ Downloaded {len(content_list)} items to process.")
-    return content_list
+            # NYT Top Stories returns an array inside the 'results' key
+            if 'results' in response:
+                content_dict[cat] = response['results'][:20] # Limit to 20
+                print(f"  ✅ Successfully fetched category: {cat}")
+            else:
+                print(f"  ⚠️ [Warning] NYT Error on {cat} (mapped to {nyt_section}): {response}") 
+                
+        except Exception as e: 
+            print(f"  ❌ [Error] Network/Request failed on {cat}: {e}")
+            
+        # --- NEW ADDITION: 12 SECOND DELAY ---
+        print("  ⏳ Pausing for 12 seconds to prevent NYT API rate limiting...")
+        time.sleep(12) 
+            
+    return content_dict
 
-def process_targets(all_content):
+def process_targets(articles_by_category):
     """
-    [EN] Iterates through cluster targets and generates static HTML files based on TMDB data.
+    Iterates through cluster targets and generates static HTML files and a rich JSON database based on NYT data.
     """
     try:
         with open('template.html', 'r', encoding='utf-8') as f: TEMPLATE = f.read()
     except FileNotFoundError:
-        print("❌ CRITICAL ERROR: template.html not found! Aborting target processing.")
+        print("❌ CRITICAL ERROR: template.html not found!")
         return
 
     for target in TARGETS:
@@ -253,169 +231,146 @@ def process_targets(all_content):
         clean_authority = authority_url.replace('https://', '').replace('http://', '').strip('/')
         clean_domain = domain.replace('https://', '').replace('http://', '').strip('/')
 
-        # Default: Empty string (For Satellite domains, removes GA4)
         analytics_code = ""
-        
-        # Only inject GA4 if this is a KING domain and exists in GA_MAPPING
         if is_king and authority_url in GA_MAPPING:
             ga_id = GA_MAPPING[authority_url]
             analytics_code = f"""<script async src="https://www.googletagmanager.com/gtag/js?id={ga_id}"></script>
     <script>window.dataLayer=window.dataLayer||[];function gtag(){{dataLayer.push(arguments);}}gtag('js',new Date());gtag('config','{ga_id}');</script>"""
 
-        print(f"\n🚀 Processing Target: {domain}")
         if not os.path.exists(root_path):
-            print(f"   ⚠️ Directory not found: {root_path}. Skipping.")
             continue
             
-        os.makedirs(os.path.join(root_path, "movies"), exist_ok=True)
-        os.makedirs(os.path.join(root_path, "tvshows"), exist_ok=True)
         load_existing_index(root_path)
         new_files_count = 0
         
-        for item in all_content:
-            media_type = item['media_type_override']
-            folder = "movies" if media_type == "movie" else "tvshows"
-            title = item.get('title') if media_type == "movie" else item.get('name')
-            if not title: continue
+        for cat, articles in articles_by_category.items():
+            os.makedirs(os.path.join(root_path, cat), exist_ok=True)
             
-            raw_date = item.get('release_date') if media_type == "movie" else item.get('first_air_date')
-            year = raw_date.split('-')[0] if raw_date else 'NA'
-            
-            slug = f"{slugify(title, item['id'])}-{year}"
-            db_key = f"{media_type}_{item['id']}"
-            CURRENT_INDEX_DB[db_key] = {"id": item['id'], "slug": slug, "type": media_type, "folder": folder}
-            
-            output_filename = f"{slug}.html"
-            output_path = os.path.join(root_path, folder, output_filename)
-            
-            if os.path.exists(output_path): continue
-            
-            try:
-                endpoint = "movie" if media_type == "movie" else "tv"
-                detail_url = f"{BASE_URL}/{endpoint}/{item['id']}?api_key={API_KEY}&language={LANG}&append_to_response=videos,credits,release_dates,content_ratings"
-                details = requests.get(detail_url).json()
+            for item in articles:
+                title = item.get('title')
+                original_url = item.get('url')
+                if not title or not original_url: continue
                 
-                page_url = f"{domain}/{folder}/{slug}.html"
-                canonical_url = f"{authority_url}/{folder}/{slug}.html"
+                article_id = generate_id(original_url)
                 
-                overview = safe_str(details.get('overview', 'No synopsis available.'))
-                seo_description = f"Watch {title} ({year}). {overview[:100]}... Review and details on {clean_domain}."
-                # [EN] Create dynamic SEO injection to avoid boilerplate/duplicate content penalty from Google
-                seo_variations = [
-                    f"Discover full details and reviews about <strong>{title}</strong> on <strong>{clean_domain}</strong>. Proudly part of the {clean_authority} network.",
-                    f"Looking for information on <strong>{title}</strong>? You are on the right page at <strong>{clean_domain}</strong>, a member of the {clean_authority} family.",
-                    f"Explore the cast, synopsis, and ratings for <strong>{title}</strong> exclusively brought to you by <strong>{clean_domain}</strong> ({clean_authority} network).",
-                    f"Get the latest updates, trailers, and user reviews for <strong>{title}</strong> right here at <strong>{clean_domain}</strong>, powered by {clean_authority}.",
-                    f"Dive deep into the world of <strong>{title}</strong> with comprehensive details provided by <strong>{clean_domain}</strong>, a trusted {clean_authority} partner.",
-                    f"Find out everything you need to know about <strong>{title}</strong> before you watch. Brought to you by <strong>{clean_domain}</strong> ({clean_authority}).",
-                    f"Read our in-depth analysis and community ratings for <strong>{title}</strong>. Exclusively available on <strong>{clean_domain}</strong> via the {clean_authority} ecosystem.",
-                    f"Curious about the plot of <strong>{title}</strong>? <strong>{clean_domain}</strong> has all the answers you need, supported by {clean_authority}.",
-                    f"Join thousands of movie fans exploring <strong>{title}</strong> on <strong>{clean_domain}</strong>, an official site of the {clean_authority} network.",
-                    f"From cast members to release dates, <strong>{clean_domain}</strong> is your ultimate guide for <strong>{title}</strong>. Powered by {clean_authority}.",
-                    f"Uncover hidden trivia, behind-the-scenes info, and full reviews of <strong>{title}</strong> at <strong>{clean_domain}</strong> ({clean_authority} group).",
-                    f"Make <strong>{clean_domain}</strong> your go-to destination for all things <strong>{title}</strong>. We are proud members of the {clean_authority} digital family.",
-                    f"Looking for top-tier entertainment info? Check out our page on <strong>{title}</strong> here at <strong>{clean_domain}</strong>, backed by {clean_authority}.",
-                    f"Don't miss out on our exclusive coverage of <strong>{title}</strong>. Read the full synopsis on <strong>{clean_domain}</strong> ({clean_authority} network).",
-                    f"Whether it's ratings, runtime, or cast details, <strong>{clean_domain}</strong> has you covered for <strong>{title}</strong>. A {clean_authority} affiliated site.",
-                    f"Get comprehensive insights into <strong>{title}</strong> today. Hosted exclusively on <strong>{clean_domain}</strong>, part of the extensive {clean_authority} media group.",
-                    f"Stay updated with the best reviews for <strong>{title}</strong> provided by the experts at <strong>{clean_domain}</strong> (A {clean_authority} company).",
-                    f"Want to know if <strong>{title}</strong> is worth watching? Find out here on <strong>{clean_domain}</strong>, proudly powered by {clean_authority}.",
-                    f"Your search for <strong>{title}</strong> details ends here! Enjoy this complete overview from <strong>{clean_domain}</strong> and the {clean_authority} network.",
-                    f"Explore high-quality metadata, posters, and synopses for <strong>{title}</strong> at <strong>{clean_domain}</strong>. Brought to you seamlessly by {clean_authority}."
-                ]
+                # NYT uses 'published_date' instead of 'publishedAt'
+                raw_date = item.get('published_date', '')
+                year = raw_date.split('T')[0] if raw_date else 'NA'
                 
-                # [EN] Dynamic Call-To-Action (CTA) directing users to the streaming site
-                # [FIX] URL changed to always point to the dynamic watch.html page
-                dynamic_watch_url = f"https://xudomovie.us/watch.html?type={media_type}&id={item['id']}&lang={LANG}"
+                # NYT places images inside a 'multimedia' array
+                image_url = 'https://via.placeholder.com/900x500/1a1a1a/ffffff?text=No+Image'
+                if item.get('multimedia') and isinstance(item['multimedia'], list) and len(item['multimedia']) > 0:
+                    raw_url = item['multimedia'][0].get('url', '')
+                    if raw_url:
+                        if raw_url.startswith('http://') or raw_url.startswith('https://'):
+                            image_url = raw_url
+                        else:
+                            separator = '' if raw_url.startswith('/') else '/'
+                            image_url = f"https://static01.nyt.com{separator}{raw_url}"
                 
-                cta_variations = [
-                    f"Ready to watch? Stream <strong>{title}</strong> now on <a href='{dynamic_watch_url}' target='_blank' rel='dofollow'><strong>XUDOMovie</strong></a>.",
-                    f"Want to see the full feature? Watch <strong>{title}</strong> in high quality over at <a href='{dynamic_watch_url}' target='_blank' rel='dofollow'><strong>XUDOMovie</strong></a>.",
-                    f"Don't just read about it—experience it! Catch <strong>{title}</strong> online at <a href='{dynamic_watch_url}' target='_blank' rel='dofollow'><strong>XUDOMovie</strong></a>.",
-                    f"Grab your popcorn and head over to <a href='{dynamic_watch_url}' target='_blank' rel='dofollow'><strong>XUDOMovie</strong></a> to enjoy <strong>{title}</strong> today.",
-                    f"Looking for the full episode or movie? Start streaming <strong>{title}</strong> directly on <a href='{dynamic_watch_url}' target='_blank' rel='dofollow'><strong>XUDOMovie</strong></a>."
-                ]
+                # NYT provides 'abstract' instead of full description/content
+                desc = item.get('abstract', '')
+                content = desc # Using abstract as the main body content fallback
+                source_name = "The New York Times"
                 
-                # [EN] Combining SEO Spintax with CTA Spintax
-                seo_inject_text = f"{random.choice(seo_variations)} {random.choice(cta_variations)}"
+                slug = f"{slugify(title)}-{article_id}"
                 
-                poster_path = details.get('poster_path')
-                poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else "https://via.placeholder.com/500x750?text=No+Poster"
-                poster_alt = f"{title} ({year}) - {media_type.capitalize()} details on {clean_domain}"
+                CURRENT_INDEX_DB[str(article_id)] = {
+                    "id": article_id, 
+                    "slug": slug, 
+                    "type": "news", 
+                    "folder": cat,
+                    "title": title,
+                    "image": image_url,
+                    "publishedAt": raw_date,
+                    "description": desc,
+                    "url": f"{cat}/{slug}.html",
+                    "original_url": original_url,
+                    "source_name": source_name
+                }
                 
-                rating = str(details.get('vote_average', 0))[:3]
-                runtime = fmt_run(details.get('runtime') if media_type == 'movie' else (details.get('episode_run_time', [0])[0] if details.get('episode_run_time') else 0))
-                certification = get_cert(details, media_type)
-                trailer_key = get_trailer(details.get('videos', {}))
+                output_filename = f"{slug}.html"
+                output_path = os.path.join(root_path, cat, output_filename)
                 
-                if trailer_key:
-                    display_player = "block"
-                    display_backdrop = "none"
-                else:
-                    display_player = "none"
-                    display_backdrop = "block"
+                if os.path.exists(output_path): continue
                 
-                genres_html = "".join([f'<span class="genre-tag">{g["name"]}</span>' for g in details.get('genres', [])])
-                cast_html = ""
-                for cast in details.get('credits', {}).get('cast', [])[:10]:
-                    img_src = f"https://image.tmdb.org/t/p/w200{cast['profile_path']}" if cast.get('profile_path') else "https://via.placeholder.com/200"
-                    cast_html += f'<div class="cast-card"><img src="{img_src}" class="cast-img"><div class="cast-name">{safe_str(cast["name"])}</div></div>'
-
-                html_content = TEMPLATE \
-                    .replace('{{ANALYTICS}}', analytics_code) \
-                    .replace('{{API_KEY}}', API_KEY) \
-                    .replace('{{TITLE}}', safe_str(title)) \
-                    .replace('{{TYPE}}', "Movie" if media_type == "movie" else "TV Show") \
-                    .replace('{{SEO_DESCRIPTION}}', seo_description) \
-                    .replace('{{OVERVIEW}}', overview + "<br><br>" + seo_inject_text) \
-                    .replace('https://image.tmdb.org/t/p/w500{{POSTER_PATH}}', poster_url) \
-                    .replace('{{POSTER_ALT}}', safe_str(poster_alt)) \
-                    .replace('{{YEAR}}', str(year)) \
-                    .replace('{{RATING}}', rating) \
-                    .replace('{{VIDEO_KEY}}', trailer_key) \
-                    .replace('{{DISPLAY_PLAYER}}', display_player) \
-                    .replace('{{DISPLAY_BACKDROP}}', display_backdrop) \
-                    .replace('{{RUNTIME}}', runtime) \
-                    .replace('{{CERTIFICATION}}', certification) \
-                    .replace('{{GENRES}}', genres_html) \
-                    .replace('{{CAST_LIST}}', cast_html) \
-                    .replace('{{ID}}', str(item['id'])) \
-                    .replace('{{MEDIA_TYPE}}', media_type) \
-                    .replace('{{SAFE_TITLE}}', safe_str(title)) \
-                    .replace('{{FOLDER}}', folder) \
-                    .replace('{{SLUG}}', slug) \
-                    .replace('{{SCHEMA}}', generate_json_ld(details, media_type, title)) \
-                    .replace('{{CANONICAL}}', canonical_url) \
-                    .replace('{{AUTHORITY_DOMAIN}}', clean_authority)
-
-                with open(output_path, 'w', encoding='utf-8') as f: f.write(html_content)
-                new_files_count += 1
-                if is_king: 
-                    ping_new_content(title, page_url)
+                try:
+                    page_url = f"{domain}/{cat}/{slug}.html"
+                    canonical_url = f"{authority_url}/{cat}/{slug}.html"
                     
-                    # [EN] Append the newly generated URL to new_urls.txt for Google Indexing
-                    try:
-                        with open("new_urls.txt", "a", encoding="utf-8") as url_file:
-                            url_file.write(canonical_url + "\n")
-                    except Exception as e:
-                        print(f"  ⚠️ [Warning] Failed to write to new_urls.txt: {e}")
+                    # --- ENTERPRISE ANTI-THIN CONTENT INJECTION ---
+                    # Professional journalistic prefixes to contextualize the news
+                    prefix_variations = [
+                        f"In the rapidly evolving landscape of global events, staying informed is paramount. Today's briefing brings critical attention to the developments surrounding <strong>{title}</strong>. As the situation unfolds, understanding the nuances becomes essential for our audience at {clean_domain}.",
+                        f"XUDONews continuously monitors key international and domestic developments. Our latest aggregated coverage highlights significant updates regarding <strong>{title}</strong>. The following executive summary provides essential context drawn directly from our trusted syndication network.",
+                        f"Navigating today's complex news cycle requires reliable, high-fidelity insights. We have aggregated vital information concerning <strong>{title}</strong>. Below is the primary briefing detailing the core elements of this developing story.",
+                        f"As part of our commitment to delivering timely intelligence, {clean_domain} presents the latest findings on <strong>{title}</strong>. Analyzing these initial reports is crucial for grasping the broader geopolitical or socioeconomic implications."
+                    ]
                     
-            except Exception as e: 
-                print(f"    ❌ [Error] Failed to process detail for {title} (ID: {item.get('id')}): {e}")
+                    # Professional journalistic suffixes to encourage full reading
+                    suffix_variations = [
+                        f"This executive brief is part of {clean_domain}'s ongoing mission to deliver high-impact information. To explore the comprehensive details and in-depth journalistic analysis regarding <strong>{title}</strong>, we strongly encourage readers to consult the original full-length publication provided by {source_name}.",
+                        f"While this summary captures the primary aspects of the event, the full narrative contains crucial granular details. For a complete and definitive understanding of the implications, access the original reporting via the source link provided below.",
+                        f"The information presented in this digest highlights the immediate facts available at the time of publication. {clean_domain} remains dedicated to curating impactful stories. Proceed to the official material by {source_name} to engage with the complete editorial piece.",
+                        f"Understanding the full scope of this issue requires looking beyond the executive summary. We invite our readers to dive deeper into the verified reporting and expert commentary on the original platform."
+                    ]
 
-        print(f"   ✅ Finished. New files generated: {new_files_count}")
-        generate_sitemap(root_path, domain, "movies")
-        generate_sitemap(root_path, domain, "tvshows")
+                    # Randomly select one prefix and one suffix for dynamic generation
+                    selected_prefix = random.choice(prefix_variations)
+                    selected_suffix = random.choice(suffix_variations)
+                    
+                    # Combine into a robust HTML structure to avoid thin content penalties
+                    enhanced_html_content = (
+                        f"<p class='seo-prefix' style='color: #aaa; font-size: 1rem; margin-bottom: 25px; border-left: 3px solid #333; padding-left: 15px; font-style: italic; line-height: 1.6;'>{selected_prefix}</p>"
+                        f"<p style='font-weight:600; font-size:1.25rem; color:#fff; line-height: 1.8; margin-bottom: 25px;'>{safe_str(desc)}</p>"
+                        f"<p class='seo-suffix' style='color: #aaa; font-size: 1rem; margin-top: 25px; margin-bottom: 10px; line-height: 1.6;'>{selected_suffix}</p>"
+                    )
+                    # ----------------------------------------------
+
+                    html_content = TEMPLATE \
+                        .replace('{{ANALYTICS}}', analytics_code) \
+                        .replace('{{API_KEY}}', API_KEY) \
+                        .replace('{{TITLE}}', safe_str(title)) \
+                        .replace('{{IMAGE_URL}}', image_url) \
+                        .replace('{{IMAGE_ALT}}', safe_str(f"{title} - Cover Image")) \
+                        .replace('{{SOURCE_NAME}}', safe_str(source_name)) \
+                        .replace('{{PUBLISHED_DATE}}', year) \
+                        .replace('{{SEO_DESCRIPTION}}', safe_str(desc[:150] + "...")) \
+                        .replace('{{CONTENT_HTML}}', enhanced_html_content) \
+                        .replace('{{ORIGINAL_URL}}', original_url) \
+                        .replace('{{ID}}', str(article_id)) \
+                        .replace('{{YEAR}}', year) \
+                        .replace('{{SAFE_TITLE}}', safe_str(title)) \
+                        .replace('{{CANONICAL}}', canonical_url) \
+                        .replace('{{AUTHORITY_DOMAIN}}', clean_authority) \
+                        .replace('{{SCHEMA}}', generate_json_ld(item, cat, clean_domain))
+
+                    with open(output_path, 'w', encoding='utf-8') as f: 
+                        f.write(html_content)
+                    new_files_count += 1
+                    
+                    if is_king: 
+                        ping_new_content(title, page_url)
+                        try:
+                            with open("new_urls.txt", "a", encoding="utf-8") as url_file:
+                                url_file.write(canonical_url + "\n")
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+        print(f"   ✅ Finished {domain}. New articles generated: {new_files_count}")
+        for cat in CATEGORIES:
+            generate_sitemap(root_path, domain, cat)
         generate_master_sitemap(root_path, domain)
         generate_robots_txt(root_path, domain)
         save_search_index(root_path)
 
 if __name__ == "__main__":
-    print("🎬 Starting Multi-Cluster Generator...")
-    start_time = time.time()
-    content_data = fetch_content_from_tmdb()
-    if content_data: process_targets(content_data)
-    else: print("❌ No data fetched. Aborting.")
-
-    print(f"\n🎉 All tasks completed in {round(time.time() - start_time, 2)} seconds.")
-
+    print("📰 Starting Static JSON & News HTML Generator with NYT API...")
+    # Switched caller to use the new NYT fetcher
+    articles_data = fetch_content_from_nyt()
+    if any(articles_data.values()): 
+        process_targets(articles_data)
+    else: 
+        print("❌ No data fetched. Aborting.")

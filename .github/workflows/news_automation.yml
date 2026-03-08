@@ -1,0 +1,43 @@
+name: XUDONews Daily Auto-Generator
+
+on:
+  # Automatically run the script at 00:00 and 12:00 UTC every day (can be modified)
+  schedule:
+    - cron: '0 0,12 * * *'
+  # Allows manual triggering of the workflow from the GitHub Actions UI
+  workflow_dispatch:
+
+jobs:
+  build-and-index:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        # Install required Python libraries from requirements.txt
+        run: pip install -r requirements.txt
+
+      - name: Run News Generator (NYT API)
+        env:
+          NYT_API_KEY: ${{ secrets.NYT_API_KEY }}
+        run: python3 generator.py
+
+      - name: Run Google Instant Indexing
+        env:
+          GOOGLE_INDEXING_JSON: ${{ secrets.GOOGLE_INDEXING_JSON }}
+        run: python3 indexer.py
+
+      - name: Commit and Push New Articles
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          # Check for new or modified files. If changes exist, commit and push them to the repository.
+          git diff --quiet && git diff --staged --quiet || (git commit -m "🤖 Auto-generated news & updated index" && git push)
