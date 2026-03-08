@@ -213,7 +213,7 @@ async function fetchLiveSearch(query) {
             dropdown.innerHTML = results.map(i => {
                 const title = sanitizeHTML(i.title);
                 const year = sanitizeHTML((i.publishedAt || '').split('T')[0] || 'N/A');
-                const poster = i.image || 'https://via.placeholder.com/40x60?text=NA';
+                const poster = i.image || 'https://placehold.co/40x60/222222/222222';
                 const safeTitle = title.replace(/'/g, "\\'");
                 const safePoster = poster.replace(/'/g, "\\'");
                 const isFav = isFavorite(i.id);
@@ -344,7 +344,7 @@ function updateContinueWatching(item) {
     h.unshift({
         id: id, type: 'news',
         title: item.title,
-        poster: item.image || 'https://via.placeholder.com/500',
+        poster: item.image || 'https://placehold.co/500x500/222222/222222',
         year: (item.publishedAt || '').split('T')[0], rating: 0
     });
     if (h.length > 20) h.pop();
@@ -367,7 +367,7 @@ function createCardHTML(item) {
     const title = sanitizeHTML(item.title);
     const date = item.publishedAt || item.year || '????';
     const displayDate = date.split('T')[0];
-    const poster = item.image || item.poster_path || item.poster || 'https://placehold.co/400x600/1a1a1a/ffffff?text=XUDONews';
+    const poster = item.image || item.poster_path || item.poster || 'https://placehold.co/400x600/222222/222222';
     const isFav = isFavorite(item.id);
     
     const sT = title.replace(/'/g, "\\'");
@@ -455,7 +455,7 @@ async function loadHeroSlider() {
         c.innerHTML = [t[t.length - 1], ...t, t[0]].map(i => {
             const title = sanitizeHTML(i.title);
             const desc = sanitizeHTML(i.description || '');
-            const img = i.image || 'https://via.placeholder.com/1200x600?text=No+Image';
+            const img = i.image || 'https://placehold.co/1200x600/222222/222222';
             const itemStr = encodeURIComponent(JSON.stringify(i));
             return `<a href="article.html" onclick="saveCurrentArticle('${itemStr}')" class="hero-slide" style="background-image: linear-gradient(to top, #0f0f0f, transparent 90%), url('${img}')"><div class="hero-content"><div class="hero-tag">${TEXTS.trending}</div><h1 class="hero-title">${title}</h1><p class="hero-desc">${desc}</p><div class="hero-btn"><svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7zm-2 16H5V5h7V3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7z"/></svg> ${TEXTS.heroBtn}</div></div></a>`;
         }).join('');
