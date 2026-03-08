@@ -383,7 +383,7 @@ function createCardHTML(item) {
 
     return `<div class="content-card" onclick="saveCurrentArticle('${itemStr}'); location.href='${targetLink}'">
         <button class="card-fav-btn ${isFav?'active':''}" onclick="toggleFavorite(event, ${item.id}, 'news', '${sT}', '${sP}', '${displayDate}', '0')">${isFav ? SVG_ON : SVG_OFF}</button>
-        <img src="${poster}" alt="${title}" loading="lazy">
+        <img src="${poster}" alt="${title}" loading="lazy" onerror="this.src='https://placehold.co/400x600/1a1a1a/ffffff?text=XUDONews'">
         <div class="card-info"><div class="card-title">${title}</div><div class="card-year">${displayDate}</div></div>
     </div>`;
 }

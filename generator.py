@@ -60,7 +60,7 @@ def generate_json_ld(article, category, domain):
     Generates valid JSON-LD schema markup for NewsArticle SEO purposes.
     Updated to parse NYT JSON structure and handle CDN images.
     """
-    image_url = 'https://via.placeholder.com/900x500/1a1a1a/ffffff?text=No+Image'
+    image_url = 'https://placehold.co/900x500/1a1a1a/ffffff?text=No+Image'
     if article.get('multimedia') and isinstance(article['multimedia'], list) and len(article['multimedia']) > 0:
         raw_url = article['multimedia'][0].get('url', '')
         if raw_url:
@@ -258,7 +258,7 @@ def process_targets(articles_by_category):
                 year = raw_date.split('T')[0] if raw_date else 'NA'
                 
                 # NYT places images inside a 'multimedia' array
-                image_url = 'https://via.placeholder.com/900x500/1a1a1a/ffffff?text=No+Image'
+                image_url = 'https://placehold.co/900x500/1a1a1a/ffffff?text=No+Image'
                 if item.get('multimedia') and isinstance(item['multimedia'], list) and len(item['multimedia']) > 0:
                     raw_url = item['multimedia'][0].get('url', '')
                     if raw_url:
