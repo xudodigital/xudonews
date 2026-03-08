@@ -373,7 +373,10 @@ function createCardHTML(item) {
     const sT = title.replace(/'/g, "\\'");
     const sP = poster.replace(/'/g, "\\'");
     const itemStr = encodeURIComponent(JSON.stringify(item));
-    const targetLink = `article.html`;
+    let targetLink = `article.html`;
+    if (item.url && !item.url.startsWith('http')) {
+    targetLink = item.url;
+}
 
     const SVG_ON = '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M17 3H7c-1.1 0-1.99.9-1.99 2L5 21l7-3 7 3V5c0-1.1-.9-2-2-2z"></path></svg>';
     const SVG_OFF = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3H7c-1.1 0-1.99.9-1.99 2L5 21l7-3 7 3V5c0-1.1-.9-2-2-2z"></path></svg>';
